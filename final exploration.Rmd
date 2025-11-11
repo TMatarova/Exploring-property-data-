@@ -1,0 +1,254 @@
+---
+title: "CS5801 Resit Coursework SUBMISSION"
+author: "2439515"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+version: 1
+---
+
+# 0. Instructions 
+
+```{r}
+library(tidyverse)
+library(mice)
+```
+
+# 1. Organise and clean the data
+
+## 1.1 Subset the data into the specific dataset allocated
+ 
+```{r}
+# Only change the value for SID 
+# Assign your student id into the variable SID, for example:
+SID <- 2439515                 # This is an example, replace 2101234 with your actual ID
+SIDoffset <- (SID %% 50) + 1    # Your SID mod 50 + 1
+
+load("property_data.Rda")
+# Now subset the property data set
+# Pick every 50th observation starting from your offset
+# Put into your data frame named mydf (you can rename it)
+mydf <- property_data[seq(from=SIDoffset,to=nrow(property_data),by=50),]
+```
+
+
+## 1.2 Data quality plan
+ 
+First, the data set is inspected using the head and tail functions to get an understanding of it and what it looks like. Then the summary and structure functions are used for an overview of the data. There are twelve columns. Four columns are character data: property_id, type, parking, and rented. Two columns are integer data: bedrooms and bathrooms. Five columns are numerical data: property_age, sale_price, distance_km, floor_number, and square_footage. One column is binary data: rental_ind. Then using the sum(is.na()) function the data set is checked for any NA values. The unique() function is then used on the binary and character columns to check for duplicates. Finally, the table() function is used to view square footage and property type, and how many instances occur in different sizes.
+
+## 1.3 Data quality findings
+
+The data is based on listed properties where there are three data quality issues:
+
+The first issue appears in the column called square_footage, which refers to the size of the properties in square feet. The issue, shown by printing properties under 100 square feet, is that there are entries with extremely low values, two properties are listed at just 5 square feet, which is unrealistic. While it could be argued that such small sizes are technically possible, these same properties have multiple bedrooms and bathrooms, making it clearly impossible.
+
+The second issue appears in the type column, which represents the types of properties. The issue, identified using the unique() function, is that “Duplex” appears twice due to a misspelling: one is correctly entered as “Duplex” and the other as “Dulpex.”
+
+The third issue appears in the property_age column, which indicates the age of each property. Using the print() function to show ages under 0 reveals that two properties have negative ages (both listed as -30), which is not possible.
+
+### Issue 1
+
+```{r}
+print(mydf[mydf$square_footage < 100, ]) # Check for any houses under 100 square foot 
+```
+
+### Issue 2
+
+```{r}
+unique(mydf$type) # Check for list of property types and view misspellings or duplicates
+```
+
+### Issue 3
+
+```{r}
+print(mydf[mydf$property_age < 0, ]) # View any properties that have a negative value in property age
+```
+
+## 1.4 Data cleaning  
+ 
+Issue 1: MICE package was used to impute the values for low square footage instances because both values were 5, and that value isn't easy to interpret as a simple mistake. So the instances were replaced with NA values and the property_id column was removed and the character values were made into factors to avoid issues with the MICE package. Then the MICE package was used. Other imputation methods, such as median imputation were considered, but they could skew the results and introduce bias, this is why the MICE package was chosen. The imputation was applied to a subset of the data, and property_id was added back in, as it may be a used in the future. Then it was all added back to the original data set. 
+
+Issue 2: fixed by correcting the spelling mistake of 'Dulpex' to 'Duplex' using the mutate() function. This was done this way as it immediately just rectifies the instances which were recorded under a spelling mistake. 
+
+Issue 3: resolved by converting negative values in the property_age column into absolute values using the abs() function. This was done because the negative values were most likely due to a typo inserting a '-' symbol, and the absolute function makes them positive and realistic.
+
+### Addressing Issue 1
+
+```{r}
+# Using MICE package to impute when square footage under 100
+mydf_subset <- mydf %>% 
+  select(-property_id) %>% # Remove property ID to avoid MICE issues
+  mutate(across(where(is.character), as.factor)) %>%  # Convert to factors to avoid MICE issues
+  mutate(square_footage = ifelse(square_footage < 100, NA, square_footage)) # Replace with NA
+
+# Add imputed subset to a data frame
+imputed <- mice(mydf_subset, seed = 2025) 
+mydf_complete <- complete(imputed)
+
+# Add back the property_id
+mydf_complete$property_id <- mydf$property_id
+
+# Add back to original data frame 
+mydf <- mydf_complete
+```
+
+### Addressing Issue 2
+
+```{r}
+# To fix the spelling mistake in the property type column 
+mydf <- mydf %>%
+              mutate(type = recode(type,
+                                                      "Dulpex" = "Duplex",
+                                                      )) 
+```
+
+### Addressing Issue 3
+
+```{r}
+# Fix to make property age values into absolute numbers 
+mydf <- mydf %>%
+              mutate(property_age = abs(property_age))
+```
+
+
+# 2. Exploratory Data Analysis (EDA)
+
+## 2.1 EDA plan
+
+i) The data set is on properties, and it is evident that the dependent variable is sale price, as a lot of the other variables such as square footage, property type and number of bedrooms affect the price. There should generally be a positive correlation between the numeric and some relationship with property type. This hypothesis will be tested further through visualisations.
+
+ii) Three variables were chosen: square footage, property type, and number of bedrooms.
+
+Square footage is a numerical variable, so it can be plotted against sale price using a scatter plot. The plot shows a positive correlation: generally, the bigger the square footage, the higher the sale price, with a few exceptions that may be due to other contributing factors.
+
+Property type is a categorical variable, so box plots were used to compare each category against sale price. The box plots show that penthouses, followed by duplexes, have the highest sale prices, with flats coming in lowest. Houses do have a few high-value outliers, which may be due to other factors.
+
+Number of bedrooms is a numeric variable but was treated as a category using the factor() function in order to use box plots against sale price. The plots show that generally, more bedrooms lead to higher sale prices, up to 5 bedrooms but 5-bedroom properties had higher sale prices than those with 6 bedrooms. Some outliers exist where different bedroom counts have much higher sale prices, this is likely explained by other variables.
+
+Overall, square footage and number of bedrooms show a general positive correlation with sale price and property type shows it effects sale price, aside from a few unexplained instances. These will need to be explored further to understand the full picture of what affects sale price.
+
+### Element 1
+
+```{r}
+# GGPlot scatter plot for Sale price vs Square footage
+ggplot(data = mydf, aes(y = sale_price, x = square_footage)) +
+  geom_point() + geom_smooth(method = 'lm') +
+  ggtitle("Sale Price VS Square footage") +
+  labs(y = "Sale Price", x = "Square footage of property") 
+```
+
+### Element 2
+
+```{r}
+# GGplot box plots to compare different categories of property type and their sale prices
+ggplot(data = mydf, aes(y = sale_price, x = type)) +
+  geom_boxplot() +
+  ggtitle("Sale Price VS Property Type") +
+  labs(y = "Sale Price", x = "Property Type") 
+```
+
+### Element 3
+
+```{r}
+# GGplot box plots to compare number of bedrooms and their sale prices
+ggplot(data = mydf, aes(y = sale_price, x = factor(bedrooms))) +
+  geom_boxplot() +
+  ggtitle("Sale Price VS Number of Bedrooms") +
+  labs(y = "Sale Price", x = "Bedrooms") 
+```
+
+# 3. Modelling
+
+## 3.1 Explain your analysis
+
+The relationship between the three variables: number of bedrooms, property type, and square footage and the dependent variable, sale price, was explored in the EDA. The visualisations used showed that there is generally a positive correlation between these variables and the dependent variable. However, there were instances that were not explained by the charts and need to be explored further, and to do this, a model is used.
+
+When considering different models, linear regression requires a single variable to compare with the dependent variable, but there are multiple variables here. The dependent variable is numeric, which rules out logistic regression, as it requires a binary dependent variable. Since there is a mix of different types of variables both numerical and categorical the ANOVA model isn’t suitable.
+
+The best fit model is the ANCOVA model, which works well with a numeric dependent variable and can handle mixed variable types. It is also effective at understanding how the different variables affect the dependent variable together.
+
+## 3.2 Provide a model for sale price
+
+The baseline intercept of sale price is 290542.23 (Duplex). The significant variables are: bedrooms (1.97e-13 p-value), flat, house, and penthouse property types with p-values at 0.02168, 1.05e-06, and 0.00352 respectively. Square footage is at 0.65594, which isn't significant. Considering just the significant variables, coefficients show number of bedrooms and penthouse property type likelihood increases with sale price, while flats and houses decrease it.
+
+The models F-statistic of 58.29 indicates significant variance. The R-squared of 0.6004, means 60% of the variability is explained. The p-value is 2.2e-16, so it is a significant model. Overall number of bedrooms and property type do affect sale price, but square footage doesn’t.
+
+### Proposed model
+```{r}
+# ANCOVA model of sale price against bedrooms, square footage and bedroom type
+sales_aov <- (aov(mydf$sale_price~ mydf$bedrooms + mydf$square_footage + mydf$type)) 
+
+summary.lm(sales_aov)
+```
+
+### Proposed model diagnostics
+```{r}
+# plotting each individually against sale price
+
+# linear plotting square footage against sale price
+plot(lm(mydf$sale_price~ mydf$square_footage))
+
+# linear plotting property type against sale price
+plot(lm(mydf$sale_price~ mydf$type))
+
+# linear plotting bedrooms against sale price
+plot(lm(mydf$sale_price~ mydf$bedrooms))
+```
+
+### Proposed model intepretation
+```{r}
+#optional
+```
+
+# 4. Modelling another dependent variable
+
+## 4.1 Model the likelihood of a property being rented  (using the rental_ind variable provided).
+
+Rental indicator is binary, so it is explored using visualisations such as box plots, which show that property age, square footage, and distance from the city are correlated with it, to some extent. However, this requires further exploration to see how significant these correlations with the dependent variable are. Since the dependent variable is binary, the model used is logistic regression.
+
+Model interpretation:
+
+The estimated intercept is 1.9358070, which represents the intercept at “No.” For square footage, the p-value is 0.2689, which means it isn't significant, and the same goes for property age, with a p-value of 0.2665. However, distance from the city has a p-value of 0.0027, which makes it significant. Its coefficient is 0.1491144, meaning that for every one-unit increase in distance from the city center, the property is more likely to be rented. The initial model has an AIC value of 168.37, suggesting it does explain some of the likelihood of a property being rented. 
+
+Step wise variable selection is then applied to check for possible improvements. After applying it, the AIC drops to 166.76, still a significant model but with only one variable which is distance from the city center, which alone has an AIC of 174.46.
+
+To further interpret the coefficients, exponentiation is used. The odds ratio for square footage is 0.9993537, meaning for each square foot, the odds of it being rented drop by 0.07%. For distance from the city center, the odds ratio is 1.1608058, indicating a 16% increase in odds of it being rented per km. For property age, the odds ratio is 0.9942643, meaning a 0.05% decrease in odds of the property being rented per year of age.
+
+Since only distance from the city center is significant, the model suggests that the further a property is from the city center, the more likely it is to be rented.
+
+### Proposed Model
+
+```{r}
+# Change rental_ind into a factor to avoid issues 
+mydf <- mydf %>% 
+  mutate(rental_ind = factor(rental_ind, 
+                             levels = c(0, 1),      # 0 first, 1 second
+                             labels = c("Not rented", "Rented")))
+
+
+# Building the Logistic Regression model
+mydf_glm <- glm(rental_ind ~ square_footage + distance_km + property_age,
+              data   = mydf,
+              family = binomial)
+summary(mydf_glm)
+
+```
+
+### Model intepretation
+```{r}
+# Step wise function on the model 
+step(mydf_glm)
+# Coefficient values to find the odds ratios 
+exp(coef(mydf_glm))
+```
+
+# References  
+  
+OpenAI (2025). ChatGPT (July 2025 version). OpenAI. Available at: https://openai.com/chatgpt 
+[ChatGPT was used for some syntax and code assistance for example when using the mice package or changing property age into absolute number, changing rental indicator into a factor and other parts of code. It was also used for grammar checking but all analysis and interpretation is my own.]
+
+tidyverse (2023). Wickham,H., Averick,M., Bryan,J., Chang,W., McGowan,L.D.A. and Yutani,H. (2023) tidyverse: Easily Install and Load the “Tidyverse” (R package, version 2.0.0). Vienna: R Foundation for Statistical Computing.
+
+Mice (2011). van Buuren, S. and Groothuis‑Oudshoorn,K. (2011) ‘mice: Multivariate Imputation by Chained Equations in R’, Journal of Statistical Software, 45(3), pp.1–67. R package version 3.16.0.

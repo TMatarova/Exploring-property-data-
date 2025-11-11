@@ -1,0 +1,282 @@
+---
+title: "CS5801 Resit Coursework Supporting analysis"
+author: "2439515"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  pdf_document: default
+version: 1
+---
+
+# 0. Instructions 
+
+```{r}
+# Add code here to load all the required libraries with `library()`.  
+# Do not include any `install.package()` for any required packages in this rmd file.
+library(tidyverse)
+library(mice)
+```
+
+# 1. Organise and clean the data
+
+## 1.1 Subset the data into the specific dataset allocated
+ 
+```{r}
+# Only change the value for SID 
+# Assign your student id into the variable SID, for example:
+SID <- 2439515               # This is an example, replace 2101234 with your actual ID
+SIDoffset <- (SID %% 50) + 1    # Your SID mod 50 + 1
+
+load("property_data.RDa")
+# Now subset the student data set
+# Pick every 50th observation starting from your offset
+# Put into your data frame named mydf (you can rename it)
+mydf <- property_data[seq(from=SIDoffset,to=nrow(property_data),by=50),]
+```
+
+## 1.2 Data quality plan
+
+```{r}
+head(mydf) # View first 6 rows of the data set
+```
+
+```{r}
+tail(mydf) # View last 6 rows of the data set
+```
+
+```{r}
+summary(mydf) # Summary of the data set
+```
+```{r}
+str(mydf) # Structure of the data set
+```
+
+```{r}
+sum(is.na(mydf)) # Check for any NAs in the data set
+```
+
+```{r}
+unique(mydf$rental_ind) # Unique function to see for any duplicates
+```
+
+```{r}
+unique(mydf$rented) # Unique function to see for any duplicates
+```
+
+```{r}
+unique(mydf$parking) # Unique function to see for any duplicates
+```
+
+```{r}
+unique(mydf$property_id) # Unique function to see for any duplicates
+```
+
+```{r}
+unique(mydf$type) # Unique function to see for any duplicates
+```
+
+```{r}
+table(mydf$square_footage) # Table function to show how many instances in each square footage
+```
+
+```{r}
+table(mydf$type) # Table function to see how many instances of wrongly spelled 'Dulpex'
+```
+
+## 1.3 Data quality analysis findings
+
+### Issue 1
+
+```{r}
+print(mydf[mydf$square_footage < 100, ]) # Check for any houses under 100 square foot 
+```
+
+### Issue 2
+
+```{r}
+unique(mydf$type) # Check the for list of property types and view misspellings or duplicates
+```
+
+### Issue 3
+
+```{r}
+print(mydf[mydf$property_age < 0, ]) # View any properties that have a negative value in property age
+```
+
+## 1.4 Data cleaning  
+ 
+### Addressing Issue 1
+
+```{r}
+# Using MICE package to impute when square footage under 100
+mydf_subset <- mydf %>% 
+  select(-property_id) %>% # Remove property ID to avoid MICE issues
+  mutate(across(where(is.character), as.factor)) %>%  # Convert to factors to avoid MICE issues
+  mutate(square_footage = ifelse(square_footage < 100, NA, square_footage)) # Replace with NA
+
+# Add imputed subset to a data frame
+imputed <- mice(mydf_subset, seed = 2025) 
+mydf_complete <- complete(imputed)
+
+# Add back the property_id
+mydf_complete$property_id <- mydf$property_id
+
+# Add back to original data frame 
+mydf <- mydf_complete
+```
+
+```{r}
+# Print the total of houses with square footage under 100 to check
+print(sum(mydf[mydf$square_footage < 100, ]))
+```
+
+### Addressing Issue 2
+
+```{r}
+# To fix the spelling mistake 
+mydf <- mydf %>%
+              mutate(type = recode(type,
+                                                      "Dulpex" = "Duplex",
+                                                      )) 
+```
+
+```{r}
+unique(mydf$type) # Check to see its fixed and there is no misspellings of property types
+```
+
+### Addressing Issue 3
+
+```{r}
+# Fix to make property age values into absolute numbers 
+mydf <- mydf %>%
+              mutate(property_age = abs(property_age))
+```
+
+```{r}
+# Check to see if fixed and there are any properties with age below 0 
+print(sum(mydf[mydf$property_age < 0, ])) 
+
+```
+
+# 2. Exploratory Data Analysis (EDA)
+
+### Element 1
+
+```{r}
+# GGPlot scatter plot for Sale price vs Square footage
+ggplot(data = mydf, aes(y = sale_price, x = square_footage)) +
+  geom_point() + geom_smooth(method = 'lm') +
+  ggtitle("Sale Price VS Square footage") +
+  labs(y = "Sale Price", x = "Square footage of property") 
+```
+
+### Element 2
+
+```{r}
+# GGplot box plots to compare different categories of property type and their sale prices
+ggplot(data = mydf, aes(y = sale_price, x = type)) +
+  geom_boxplot() +
+  ggtitle("Sale Price VS Property Type") +
+  labs(y = "Sale Price", x = "Property Type") 
+```
+
+### Element 3
+
+```{r}
+# GGplot box plots to compare number of bedrooms and their sale prices
+ggplot(data = mydf, aes(y = sale_price, x = factor(bedrooms))) +
+  geom_boxplot() +
+  ggtitle("Sale Price VS Number of Bedrooms") +
+  labs(y = "Sale Price", x = "Bedrooms") 
+```
+
+# 3. Modelling
+
+### Proposed model
+```{r}
+# ANCOVA model of sale price against bedrooms, square footage and bedroom type
+sales_aov <- (aov(mydf$sale_price~ mydf$bedrooms + mydf$square_footage + mydf$type)) 
+
+summary.lm(sales_aov)
+```
+
+### Proposed model diagnostics
+```{r}
+# plotting each individually against sale price
+
+# linear plotting square footage against sale price
+plot(lm(mydf$sale_price~ mydf$square_footage))
+
+# linear plotting property type against sale price
+plot(lm(mydf$sale_price~ mydf$type))
+
+# linear plotting bedrooms against sale price
+plot(lm(mydf$sale_price~ mydf$bedrooms))
+```
+
+# 4. Modelling another dependent variable
+
+### EDA for model
+
+```{r}
+# Change rental_ind into a factor to avoid issues 
+mydf <- mydf %>% 
+  mutate(rental_ind = factor(rental_ind, 
+                             levels = c(0, 1),      # 0 first, 1 second
+                             labels = c("Not rented", "Rented")))
+```
+
+```{r}
+ggplot(data = mydf, aes(y = sale_price, x = rental_ind)) +
+  geom_boxplot() +
+  ggtitle("Rental Indicator VS Sale Price ") +
+  labs(y = "Sale Price", x = "Rental Indicator") 
+```
+
+```{r}
+ggplot(data = mydf, aes(y = square_footage, x = rental_ind)) +
+  geom_boxplot() +
+  ggtitle("Rental Indicator VS Sqaure Footage ") +
+  labs(y = "Square Footage", x = "Rental Indicator") 
+```
+
+```{r}
+ggplot(data = mydf, aes(y = distance_km, x = rental_ind)) +
+  geom_boxplot() +
+  ggtitle("Rental Indicator VS Distance from city ") +
+  labs(y = "Distance from the city", x = "Rental Indicator") 
+```
+
+```{r}
+ggplot(data = mydf, aes(y = property_age, x = rental_ind)) +
+  geom_boxplot() +
+  ggtitle("Property age VS Rental Indicator ") +
+  labs(y = "Property Age", x = "Rental Indicator") 
+```
+
+### Proposed Model
+
+```{r}
+# Building the Logistic Regression model
+mydf_glm <- glm(rental_ind ~ square_footage + distance_km + property_age,
+              data   = mydf,
+              family = binomial)
+summary(mydf_glm)
+```
+
+### Model intepretation
+```{r}
+# Step wise function on the model 
+step(mydf_glm)
+
+# Coefficient values to find the odds ratios 
+exp(coef(mydf_glm))
+```
+
+# References  
+
+OpenAI (2025). ChatGPT (July 2025 version). OpenAI. Available at: https://openai.com/chatgpt 
+[ChatGPT was used for some syntax and code assistance for example when using the mice package or changing property age into absolute number, changing rental indicator into a factor and other parts of code.]
+
+tidyverse (2023). Wickham,H., Averick,M., Bryan,J., Chang,W., McGowan,L.D.A. and Yutani,H. (2023) tidyverse: Easily Install and Load the “Tidyverse” (R package, version 2.0.0). Vienna: R Foundation for Statistical Computing.
+
+Mice (2011). van Buuren, S. and Groothuis‑Oudshoorn,K. (2011) ‘mice: Multivariate Imputation by Chained Equations in R’, Journal of Statistical Software, 45(3), pp.1–67. R package version 3.16.0.
